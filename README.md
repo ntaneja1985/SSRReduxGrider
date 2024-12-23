@@ -316,3 +316,470 @@ ReactDOM.hydrate(<Home />, document.getElementById("root"));
 ```
 - If we go to the browser and click on the button we get the desired result and javascript starts working.
 - ![img_24.png](img_24.png)
+
+## Merging the Webpack config files
+- We will use a npm package webpack-merge
+- It takes both these 2 config files and produces a single config file
+- It used object prototype inheritance used in javascript
+- ![img_25.png](img_25.png)
+- We will create a webpack.base.js which will contain the common configuration of module from both client and server webpack config files.
+- webpack.base.js will look like this:
+```js
+module.exports = {
+    //Tell webpack to run babel on every file it runs through
+    module: {
+        rules: [
+            {
+                test: /\.js?$/,
+                loader: 'babel-loader',
+                exclude: /node_modules/,
+                options: {
+                    presets: [
+                        'react',
+                        'stage-0',
+                        //env is a master preset and runs all transpiled rules for the last 2 versions of the browser
+                        ['env',{targets:{browsers: ['last 2 versions']}}]
+                    ],
+                }
+            }
+        ]
+    }
+};
+```
+- webpack.server.js will look like this 
+```js
+const path = require('path');
+const merge = require('webpack-merge');
+const baseConfig = require('./webpack.base.js');
+
+const config = {
+    //  Inform webpack that we are building a bundle for node.js rather than for the browser.
+    target: 'node',
+    // Tell webpack the root file of our server application
+    entry: './src/index.js',
+    // Tell webpack where to put the output file that is generated
+    output: {
+        filename: 'bundle.js',
+        path: path.resolve(__dirname, 'build'),
+    }
+};
+
+module.exports = merge(baseConfig, config);
+```
+-webpack.client.js will look like this
+```js
+const path = require('path');
+const merge = require('webpack-merge');
+const baseConfig = require('./webpack.base.js');
+
+var config = {
+    // Tell webpack the root file of our server application
+    entry: './src/client/client.js',
+    // Tell webpack where to put the output file that is generated
+    output: {
+        filename: 'bundle.js',
+        path: path.resolve(__dirname, 'public'),
+    }
+};
+
+module.exports = merge(baseConfig, config);
+```
+- Currently in package.json we have 3 scripts that we need to run which is cumbersome
+```js
+"scripts": {
+    "dev:server": "nodemon --watch build --exec node build/bundle.js",
+    "dev:build:server": "webpack --config webpack.server.js --watch",
+    "dev:build:client": "webpack --config webpack.client.js --watch"
+  },
+```
+- To fix it we will use a npm package npm-run-all
+- We can use it like this 
+```js
+"scripts": {
+    "dev": "npm-run-all --parallel dev:*",
+    "dev:server": "nodemon --watch build --exec node build/bundle.js",
+    "dev:build-server": "webpack --config webpack.server.js --watch",
+    "dev:build-client": "webpack --config webpack.client.js --watch"
+  },
+```
+## Ignoring files with Webpack
+- ![img_26.png](img_26.png)
+- We are not super concerned with size of the server bundle file
+- Currently what happens is any library that is inside require() is automatically fetched and put inside the bundle.js file
+- However, We do need a faster webpack process.
+- We will make use of another npm package: webpack-node-externals
+- We will use it like this 
+```js
+const path = require('path');
+const merge = require('webpack-merge');
+const baseConfig = require('./webpack.base.js');
+const webpackNodeExternals = require('webpack-node-externals');
+
+
+
+const config = {
+    //  Inform webpack that we are building a bundle for node.js rather than for the browser.
+    target: 'node',
+    // Tell webpack the root file of our server application
+    entry: './src/index.js',
+    // Tell webpack where to put the output file that is generated
+    output: {
+        filename: 'bundle.js',
+        path: path.resolve(__dirname, 'build'),
+    },
+    externals: [webpackNodeExternals()]
+};
+
+module.exports = merge(baseConfig, config);
+```
+- webpack-node-externals will tell webpack not to put any file inside the bundle.js that exists inside the node_modules folder.
+- Earlier bundle.js file used to be 757kb now it is 4.68kb
+- ![img_27.png](img_27.png)
+- We will create a separate helpers folder and create a renderer function that will contain the logic of encapsulating the html for the React App
+- Then we can make our index.js file even smaller like this
+```js
+import express from 'express';
+import renderer from "./helpers/renderer";
+
+const app = express();
+
+//Make the root directory public
+app.use(express.static('public'));
+app.get('/', (req, res) => {
+// We are using JSX inside node.js code
+res.send(renderer());
+})
+
+app.listen(3000,()=>{
+    console.log("Server running on port 3000");
+});
+```
+## Implementing React Router Support
+- ![img_28.png](img_28.png)
+- We will have 2 tiers of routing in our application: one tier is for Express Router Handler and other is for React Router
+- Express will not enforce any routing rules on the incoming requests.
+- Express will pass the routing decision to react router.
+- We can always add rules to express route handler. 
+
+## BrowserRouter vs StaticRouter
+- How React Router works in a normal vanilla React App with a Browser Router can be shown in the following diagram:
+- ![img_29.png](img_29.png)
+- ![img_30.png](img_30.png)
+- BrowserRouter is harcoded to look at the address in the address bar.
+- However on the server side, no address bar is present.
+- To solve this problem, we need 2 different routers
+- ![img_31.png](img_31.png)
+- StaticRouter is specifically made for use with SSR.
+- **StaticRouter will run on the server and Browser Router will run on the browser.**
+- To use both of these routers, we will do the following:
+- ![img_32.png](img_32.png)
+- First, we will create a file Routes.js which will contain all different route mappings of our application, only route mappings only
+- Then we will import that routes file inside in the renderer.js file for the server and client.js file for the client(browser).
+- In renderer.js we will make use of StaticRouter and inside the client.js we will use BrowserRouter.
+- Routes.js file will look like this 
+```js
+import React from 'react';
+import {Route} from 'react-router-dom';
+import Home from './components/Home';
+
+export default ()=>{
+    return (
+        <div>
+            <Route exact path="/" component={Home}/>
+        </div>
+    )
+}
+```
+- Using this Route Mapping file inside client.js can be done like this:
+- Note that in client.js we make use of the Browser Router.
+```js
+// Startup point for the client side application
+import React from "react";
+import ReactDOM from "react-dom";
+// import Home from "./components/Home";
+import {BrowserRouter} from "react-router-dom";
+import Routes from "./Routes";
+
+
+ReactDOM.hydrate(
+    <BrowserRouter>
+        <Routes />
+    </BrowserRouter>
+    , document.getElementById("root"));
+```
+- Sometimes we may see an error message like this
+- ![img_33.png](img_33.png)
+- This error message is because there is a mismatch in the html being rendered by the server and the html that is being hydrated from the client
+- React expects both of them to have the same HTML output
+- For the server side changes, we will pass the Routes.js file to the renderer.js file also
+```js
+import React from "react";
+import {renderToString} from "react-dom/server";
+import {StaticRouter} from "react-router-dom";
+import Routes from "../client/Routes"
+// import Home from "../client/components/Home";
+
+export default (req) =>{
+    const content = renderToString(
+        <StaticRouter location={req.path} context={{}}>
+            <Routes />
+        </StaticRouter>
+    );
+    return `
+<html lang="en">
+<head>
+<title>React App</title>
+</head>
+<body>
+    <div id="root">${content}</div>
+    <script src="bundle.js"></script>
+</body>
+</html>
+`;
+};
+```
+- Please note that Static router has a required props of context which is an empty object and a location which is set to the current path of the user's request.
+- This req is passed from the request parameter in index.js to renderer.js 
+```js
+//Make the root directory public
+app.use(express.static('public'));
+app.get('/', (req, res) => {
+// We are using JSX inside node.js code
+    res.send(renderer(req));
+})
+```
+- To configure Express to allow all incoming requests and pass them to the react router, we need to do this(use * instead of /):
+```js
+//Make the root directory public
+app.use(express.static('public'));
+app.get('*', (req, res) => {
+// We are using JSX inside node.js code
+    res.send(renderer(req));
+})
+```
+- For the app we are building we will use this API
+- https://react-ssr-api.herokuapp.com/
+- ![img_34.png](img_34.png)
+- Redux is incharge of all data management for our app
+- However, Redux will work differently on server versus the client
+- ![img_35.png](img_35.png)
+- ![img_36.png](img_36.png)
+- On the client side, we have access to the cookie data used in cookie based authentication, but how do we get that cookie data on the server side. That's a significant challenge.
+
+## Redux Refresher
+- create Store: The createStore function in Redux is used to create a Redux store that holds the state of your application. The store's state can only be changed by dispatching actions.
+```js
+import { createStore } from 'redux';
+import rootReducer from './reducers';
+
+const store = createStore(rootReducer);
+
+```
+- In this example, rootReducer is a function that takes the current state and an action, and returns the new state.
+- applyMiddleware: Middleware in Redux provides a third-party extension point between dispatching an action and the moment it reaches the reducer. applyMiddleware is used to apply middleware to the store.
+```js
+import { createStore, applyMiddleware } from 'redux';
+import rootReducer from './reducers';
+import logger from 'redux-logger'; // Example middleware
+
+const store = createStore(rootReducer, applyMiddleware(logger));
+
+```
+- Here, logger is a middleware that logs actions and state changes to the console.
+- thunk: Redux Thunk is middleware that allows you to write action creators that return a function instead of an action. 
+- This is useful for handling asynchronous operations.
+```js
+import { createStore, applyMiddleware } from 'redux';
+import thunk from 'redux-thunk';
+import rootReducer from './reducers';
+
+const store = createStore(rootReducer, applyMiddleware(thunk));
+
+// An example of an action creator that returns a function
+const fetchData = () => {
+    return (dispatch) => {
+        fetch('/api/data')
+            .then(response => response.json())
+            .then(data => dispatch({ type: 'FETCH_SUCCESS', payload: data }))
+            .catch(error => dispatch({ type: 'FETCH_ERROR', error }));
+    };
+};
+
+```
+- In this example, fetchData is an action creator that performs an asynchronous fetch operation and dispatches different actions based on the result.
+
+- Provider: The Provider component from react-redux makes the Redux store available to the rest of your app. By wrapping your app in the Provider, you can use the connect function to connect your components to the Redux store.
+```js
+import React from 'react';
+import ReactDOM from 'react-dom';
+import { Provider } from 'react-redux';
+import App from './App';
+import store from './store';
+
+ReactDOM.render(
+    <Provider store={store}>
+        <App />
+    </Provider>,
+    document.getElementById('root')
+);
+
+```
+## Redux Browser Store Creation
+- We will first create a store for the client side in client.js like this 
+```js
+// Startup point for the client side application
+import 'babel-polyfill';
+import React from "react";
+import ReactDOM from "react-dom";
+// import Home from "./components/Home";
+import {BrowserRouter} from "react-router-dom";
+import {createStore,applyMiddleware} from "redux";
+import thunk from "redux-thunk";
+import {Provider} from "react-redux";
+import Routes from "./Routes";
+import reducers from "./reducers";
+
+const store = createStore(reducers,{},applyMiddleware(thunk));
+ReactDOM.hydrate(
+    <Provider store={store}>
+        <BrowserRouter>
+            <Routes />
+        </BrowserRouter>
+    </Provider>
+    , document.getElementById("root"));
+```
+- On the server side we will create a helper method to create a store on the server
+```js
+import {createStore,applyMiddleware} from 'redux';
+import thunk from 'redux-thunk';
+import reducers from '../client/reducers';
+
+export default () =>{
+    const store = createStore(reducers, {}, applyMiddleware(thunk));
+    return store;
+}
+```
+- Then we will import that store inside the index.js and pass it to the renderer function which will then have a provider to provide it to all components:
+```js
+import express from 'express';
+import renderer from "./helpers/renderer";
+import createStore from "./helpers/createStore";
+
+const app = express();
+
+//Make the root directory public
+app.use(express.static('public'));
+app.get('*', (req, res) => {
+// We are using JSX inside node.js code
+    const store = createStore();
+    //Some logic to initialize and load data into the store.
+    res.send(renderer(req,store));
+})
+
+app.listen(3000,()=>{
+    console.log("Server running on port 3000");
+});
+
+```
+- Then we will create an action creator called fetch users like this :
+```js
+import axios from "axios";
+
+export const FETCH_USERS = 'fetch_users';
+export const fetchUsers = () => async dispatch => {
+    const res = await axios.get('https://react-ssr-api.herokuapp.com/users');
+    dispatch({
+        type: FETCH_USERS,
+        payload: res
+    });
+
+};
+```
+- Now to use this action creator we will need to create a usersReducer like this:
+```js
+import {FETCH_USERS} from "../actions";
+
+export default (state = [], action) => {
+    switch(action.type) {
+        case FETCH_USERS:
+            return action.payload.data;
+            default:
+                return state;
+    }
+}
+```
+- Finally once we have the stores defined at both the client and server, and the action creator and reducer defined, we can use it inside a new component called UsersListComponent:
+```js
+import React, {Component} from 'react';
+import {connect} from 'react-redux';
+import {fetchUsers} from "../actions";
+
+class UserList extends Component {
+    componentDidMount() {
+        this.props.fetchUsers();
+    }
+
+    renderUsers(){
+        return this.props.users.map(user => {
+            return <li key={user.id}>{user.name}</li>
+        })
+    }
+    render() {
+        return (
+            <div>
+                Here is a big list of users:
+                <ul>{this.renderUsers()}</ul>
+            </div>
+        )
+    }
+}
+
+function mapStateToProps(state) {
+    return {
+        users: state.users,
+    };
+}
+
+export default connect(mapStateToProps,{fetchUsers})(UserList);
+```
+- Here we are making use of the connect function of react-redux
+- The connect function in react-redux is a powerful utility that connects React components to the Redux store. 
+- It provides a way to access state and dispatch actions from within your components, making it easier to manage state and keep your UI in sync with the data.
+- How connect Works
+  1. Mapping State to Props: The connect function allows you to specify how the Redux state should be transformed into props for your component. This is done using the mapStateToProps function.
+  2. Mapping Dispatch to Props: You can also specify how action creators should be transformed into props using the mapDispatchToProps function.
+  3. HOC (Higher-Order Component): connect returns a higher-order component (HOC) that wraps your component, providing it with the specified props.
+```js
+import React from 'react';
+import { connect } from 'react-redux';
+import { increment, decrement } from './actions';
+
+const Counter = ({ count, increment, decrement }) => (
+  <div>
+    <p>{count}</p>
+    <button onClick={increment}>Increment</button>
+    <button onClick={decrement}>Decrement</button>
+  </div>
+);
+
+const mapStateToProps = (state) => ({
+  count: state.counter
+});
+
+const mapDispatchToProps = {
+  increment,
+  decrement
+};
+
+export default connect(mapStateToProps, mapDispatchToProps)(Counter);
+
+```
+- The connect function is a cornerstone of integrating Redux with React. It allows you to:
+- Access specific pieces of Redux state as props in your components.
+- Dispatch actions from within your components as props.
+- Keep your components decoupled from the Redux store, promoting a clear separation of concerns.
+
+
+### Please note uptil now, all the data from redux store is being fetched from the client side, not from the server side. We still have to do some work to fetch data from the server side
+- ![img_37.png](img_37.png)
+

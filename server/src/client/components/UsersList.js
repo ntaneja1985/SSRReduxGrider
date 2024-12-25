@@ -28,4 +28,12 @@ function mapStateToProps(state) {
     };
 }
 
+//Returns a promise
+function loadData(store){
+    // console.log('Trying to load some data');
+    return store.dispatch(fetchUsers());
+
+}
+
+export {loadData};
 export default connect(mapStateToProps,{fetchUsers})(UserList);

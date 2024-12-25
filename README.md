@@ -783,3 +783,252 @@ export default connect(mapStateToProps, mapDispatchToProps)(Counter);
 ### Please note uptil now, all the data from redux store is being fetched from the client side, not from the server side. We still have to do some work to fetch data from the server side
 - ![img_37.png](img_37.png)
 
+## Now we need to focus on the second problem: How we are going to detect when all initial data load action creators are completed on the server
+- How data loading works on the browser
+- ![img_38.png](img_38.png)
+- ![img_39.png](img_39.png)
+- ![img_40.png](img_40.png)
+- On the server side inside renderer.js we render our application using renderToString() function and instantly send our response back to the browser
+- There is no time to allow the app to fetch the users data from the API
+```js
+const content = renderToString(
+        <Provider store={store}>
+          <StaticRouter location={req.path} context={{}}>
+            <Routes />
+          </StaticRouter>
+        </Provider>
+);
+return `
+<html lang="en">
+<head>
+<title>React App</title>
+</head>
+<body>
+    <div id="root">${content}</div>
+    <script src="bundle.js"></script>
+</body>
+</html>
+`;
+```
+- So our timeline on server side looks like this 
+- ![img_41.png](img_41.png)
+- With server side rendering component lifecycle methods like componentDidMount donot even work on the server.
+- On the server, traditional data loading techniques donot work.
+- One way to solve this problem would be to try to load the application 2 times: 
+- ![img_42.png](img_42.png)
+- ![img_43.png](img_43.png)
+- ![img_44.png](img_44.png)
+- ![img_45.png](img_45.png)
+- This approach of loading the application 2 times doesn't work very well.
+
+## Alternative solution for server side data loading
+- ![img_46.png](img_46.png)
+- Even Next.js uses the same approach for its server side rendering.
+- We will attach a function to all of our components called loadData().
+- This function will initiate the data loading process.
+- Once this function is complete, we will render the app with collected data.
+- ![img_47.png](img_47.png)
+
+## Trying the above solution step by step
+
+### Figure out what components would have rendered based on URL
+- We will make use of a library called React Router Config 
+- This library is a sub-package of the overall react router project, so it is an officially maintained solution
+- This library is mostly used to help with server side rendering. 
+- Good thing about this library is that it helps to figure out which set of components we want to show without rendering the application
+- Bad thing is that in order to use it we have to mangle our route definitions
+- We need to structure our routes in an array of objects like this:
+- ![img_48.png](img_48.png)
+- We have to change our Routes.js to this:
+```js
+export default [
+  {
+    path: '/',
+    component: Home,
+    exact: true
+  },
+  {
+    path: '/users',
+    component: UserList
+  }
+];
+```
+- We also need to make changes in renderer.js 
+- We will use the function renderRoutes() from react-router-config library
+- Since now our routes is an array of object, this function takes an array of route objects and converts them to normal Routes that can be used by React Application
+```js
+import {renderRoutes} from "react-router-config";
+import Routes from "../client/Routes"
+import {Provider} from "react-redux";
+// import Home from "../client/components/Home";
+
+export default (req,store) =>{
+    const content = renderToString(
+        <Provider store={store}>
+            <StaticRouter location={req.path} context={{}}>
+                <div>{renderRoutes(Routes)}</div>
+            </StaticRouter>
+        </Provider>
+    );
+```
+- We would have to make same changes in client.js as well.
+```js
+import {BrowserRouter} from "react-router-dom";
+import {createStore,applyMiddleware} from "redux";
+import thunk from "redux-thunk";
+import {Provider} from "react-redux";
+import RenderRoutes from "react-router-config/renderRoutes";
+import Routes from "./Routes";
+import reducers from "./reducers";
+import {renderRoutes} from "react-router-config";
+
+const store = createStore(reducers,{},applyMiddleware(thunk));
+ReactDOM.hydrate(
+    <Provider store={store}>
+        <BrowserRouter>
+            <div>{renderRoutes(Routes)}</div>
+        </BrowserRouter>
+    </Provider>
+    , document.getElementById("root"));
+```
+- Now to figure what set of components will need to be rendered based on the requested URL, we will use matchRoutes function of react-router-config 
+- Please note this will be done without the application being rendered as of now.
+- We will make these changes inside the index.js file of the server, since there we will not only have our list of routes but also the incoming path 
+```js
+import 'babel-polyfill';
+import express from 'express';
+import renderer from "./helpers/renderer";
+import createStore from "./helpers/createStore";
+import Routes from "./client/Routes";
+import {matchRoutes} from "react-router-config";
+
+const app = express();
+
+//Make the root directory public
+app.use(express.static('public'));
+app.get('*', (req, res) => {
+// We are using JSX inside node.js code
+// Some logic to initialize and load data into the store.
+    const store = createStore();
+    //return an array of components which will be rendered.
+    matchRoutes(Routes,req.path);
+    res.send(renderer(req,store));
+})
+```
+
+### Now we can define some functions that will load data based on the list of components that need to be rendered.
+- Goal is to load data into our application without actually having to render it.
+- Please note we cannot use component lifecycle methods.
+- We need to do the following steps:
+- ![img_49.png](img_49.png)
+- First we will define a loadData function inside of our UserList component like this 
+```js
+function loadData(){
+    console.log('Trying to load some data');
+
+}
+
+```
+- Now we will include that load data function in Routes.js like this 
+```js
+export default [
+  {
+    path: '/',
+    component: Home,
+    exact: true
+  },
+  {
+    loadData:loadData,
+    path: '/users',
+    component: UserList
+  }
+];
+```
+- Next we will call that function from our index.js file on the server
+- We know that matchRoutes gives us a list of route objects which will now also have the loadData function
+- We will map over it and call the loadData() if it exists 
+```js
+app.get('*', (req, res) => {
+// We are using JSX inside node.js code
+// Some logic to initialize and load data into the store.
+  const store = createStore();
+  //return an array of components which will be rendered.
+  matchRoutes(Routes,req.path).map(({route})=>{
+    return route.loadData ? route.loadData() : null;
+  });
+  res.send(renderer(req,store));
+})
+```
+
+### Now we need to add data fetching requests inside our loadData function and wait for the response somehow
+- ![img_50.png](img_50.png)
+- ![img_51.png](img_51.png)
+- We will pass the redux store to our component's load data function
+- Inside the loadData() function inside of component, we will dispatch an action creator and return a promise back.
+- In the index.js file for the server, for all the matched routes, we will wait for the promises to resolve before rendering the app
+- This will somehow give us a signal as to when data loading is complete and we are ready to render our application 
+- Changes to loadData function inside the component:
+```js
+//Returns a promise
+function loadData(store){
+  // console.log('Trying to load some data');
+  return store.dispatch(fetchUsers());
+
+}
+
+```
+- Changes to index.js file on server
+````js
+ //Returns an array of promises
+const promises = matchRoutes(Routes,req.path).map(({route})=>{
+  return route.loadData ? route.loadData(store) : null;
+});
+
+console.log(promises)
+````
+### Wait for data loading to complete
+- Now we have an array of promises that will be returned 
+- We can use Promise.All() which takes in an array of promises and returns a single new promise.
+- As soon as the array of promises have resolved, that single promise will be resolved as well.
+- ![img_52.png](img_52.png)
+- We can change index.js file for the server like this 
+```js
+app.get('*', (req, res) => {
+// We are using JSX inside node.js code
+// Some logic to initialize and load data into the store.
+  const store = createStore();
+  //return an array of components which will be rendered.
+
+  //Returns an array of promises
+  const promises = matchRoutes(Routes,req.path).map(({route})=>{
+    return route.loadData ? route.loadData(store) : null;
+  });
+
+  Promise.all(promises).then(() => {
+    res.send(renderer(req,store));
+  })
+})
+```
+- If we go to the browser and check we can see that list of users is now being rendered from the server side
+- ![img_53.png](img_53.png)
+
+
+- Why did we not use the connect function for handling the action creator?
+- The connect function works in a normal application by communicating with the Provider tag which is at the top level of the app
+- Provider tag contains a reference to the Redux store, so when we call the mapStatetoProps function or mapDispatchToProps function, we are working with the Provider tag.
+- Remember we want to render our application only one time, so no connect tag for us, no props or anything like that with loadData because we have not yet rendered our application.
+- So we cannot use connect tag 
+-![img_54.png](img_54.png)
+
+- Why are we using store.dispatch()?
+- How does redux action creator work?
+- When we call an action creator, it dispatches an action, through various middlewares and finally it reaches a reducer.
+- ![img_55.png](img_55.png)
+- Since we cannot use connect tag, we are working with Redux manually by calling the action creator ourselves to produce an action and then using the dispatch function to pipe that action through various middlewares and eventually onto the reducers.
+- All data is loaded and is eventually sent to the reducer where we assemble our state object 
+- ![img_56.png](img_56.png)
+- ![img_57.png](img_57.png)
+- When we call res.send(renderer(req,store)), our store is full of data. 
+- It then works like a normal react-redux app. 
+- During the render phase, all of our mapStatetoProps() functions will run and pull data out of the store and map it to props inside the component and component UI is rendered.
+- Only difference now is that in server side rendering, we are doing action creator and dispatch manually

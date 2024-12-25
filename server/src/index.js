@@ -1,7 +1,7 @@
 // const express = require('express');
 // const React = require('react');
 // const renderToString = require('react-dom/server').renderToString;
-// const Home = require('./client/components/home').default;
+// const HomePage = require('./client/components/home').default;
 
 import 'babel-polyfill';
 import express from 'express';

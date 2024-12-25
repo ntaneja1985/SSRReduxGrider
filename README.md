@@ -52,17 +52,17 @@ app.listen(3000,()=>{
     console.log("Server running on port 3000");
 });
 ```
-- Create a simple Home component like this
+- Create a simple HomePage component like this
 ```js
 import React from 'react';
-const Home = () => {
+const HomePage = () => {
   return <div> I am the home component</div>
 };
-export default Home;
+export default HomePage;
 ```
-- Note that in index.js we are using CommonJS modules syntax whereas inside the Home component we are using ES6 Modules syntax.
+- Note that in index.js we are using CommonJS modules syntax whereas inside the HomePage component we are using ES6 Modules syntax.
 - ![img_12.png](img_12.png)
-- To turn our Home HTML component to send it down to the user, we need to use React DOM library 
+- To turn our HomePage HTML component to send it down to the user, we need to use React DOM library 
 - It has 2 functions: render() and renderToString()
 - We will ReactDOM.renderToString() function
 - We can use our react component inside our node.js express application like this 
@@ -70,12 +70,12 @@ export default Home;
 const express = require('express');
 const React = require('react');
 const renderToString = require('react-dom/server').renderToString;
-const Home = require('./client/components/home').default;
+const HomePage = require('./client/components/home').default;
 const app = express();
 
 app.get('/', (req, res) => {
 // We are using JSX inside node.js code.
-    const content = renderToString(<Home/>);
+    const content = renderToString(<HomePage/>);
     res.send(content);
 })
 
@@ -192,12 +192,12 @@ module.exports = {
 // const express = require('express');
 // const React = require('react');
 // const renderToString = require('react-dom/server').renderToString;
-// const Home = require('./client/components/home').default;
+// const HomePage = require('./client/components/home').default;
 
 import express from 'express';
 import React  from "react";
 import {renderToString} from 'react-dom/server';
-import Home from './client/components/home';
+import HomePage from './client/components/home';
 ```
 ## Client Side JS 
 - ![img_18.png](img_18.png)
@@ -253,7 +253,7 @@ module.exports = {
 app.use(express.static('public'));
 app.get('/', (req, res) => {
 // We are using JSX inside node.js code.
-    const content = renderToString(<Home/>);
+    const content = renderToString(<HomePage/>);
     const html = `
 <html>
 <head></head>
@@ -266,7 +266,7 @@ app.get('/', (req, res) => {
     res.send(html);
 })
 ```
-- So whenever we go to the root path of our application, we are serving up a html page that has our content from the Home component inside it.
+- So whenever we go to the root path of our application, we are serving up a html page that has our content from the HomePage component inside it.
 - It also has a script tag with bundle.js. 
 - It will automatically fetch this file from the public folder which is now accessible to all 
 - So now we will see something like this 
@@ -287,7 +287,7 @@ app.get('/', (req, res) => {
 app.use(express.static('public'));
 app.get('/', (req, res) => {
 // We are using JSX inside node.js code.
-    const content = renderToString(<Home/>);
+    const content = renderToString(<HomePage/>);
     const html = `
 <html>
 <head></head>
@@ -300,19 +300,19 @@ app.get('/', (req, res) => {
     res.send(html);
 })
 ```
-- Now we will make changes to Client.js file and make sure the Home component gets rendered inside this root div like this 
+- Now we will make changes to Client.js file and make sure the HomePage component gets rendered inside this root div like this 
 ```js
 // Startup point for the client side application
 import React from "react";
 import ReactDOM from "react-dom";
-import Home from "./components/Home";
+import HomePage from "./components/HomePage";
 
 
-ReactDOM.render(<Home />, document.getElementById("root"));
+ReactDOM.render(<HomePage />, document.getElementById("root"));
 ```
 - Post React 17, ReactDOM.render() will not work, we need to use ReactDOM.hydrate()
 ```js
-ReactDOM.hydrate(<Home />, document.getElementById("root"));
+ReactDOM.hydrate(<HomePage />, document.getElementById("root"));
 ```
 - If we go to the browser and click on the button we get the desired result and javascript starts working.
 - ![img_24.png](img_24.png)
@@ -480,12 +480,12 @@ app.listen(3000,()=>{
 ```js
 import React from 'react';
 import {Route} from 'react-router-dom';
-import Home from './components/Home';
+import HomePage from './components/HomePage';
 
 export default ()=>{
     return (
         <div>
-            <Route exact path="/" component={Home}/>
+            <Route exact path="/" component={HomePage}/>
         </div>
     )
 }
@@ -496,7 +496,7 @@ export default ()=>{
 // Startup point for the client side application
 import React from "react";
 import ReactDOM from "react-dom";
-// import Home from "./components/Home";
+// import HomePage from "./components/HomePage";
 import {BrowserRouter} from "react-router-dom";
 import Routes from "./Routes";
 
@@ -517,7 +517,7 @@ import React from "react";
 import {renderToString} from "react-dom/server";
 import {StaticRouter} from "react-router-dom";
 import Routes from "../client/Routes"
-// import Home from "../client/components/Home";
+// import HomePage from "../client/components/HomePage";
 
 export default (req) =>{
     const content = renderToString(
@@ -631,7 +631,7 @@ ReactDOM.render(
 import 'babel-polyfill';
 import React from "react";
 import ReactDOM from "react-dom";
-// import Home from "./components/Home";
+// import HomePage from "./components/HomePage";
 import {BrowserRouter} from "react-router-dom";
 import {createStore,applyMiddleware} from "redux";
 import thunk from "redux-thunk";
@@ -840,11 +840,12 @@ return `
 - We need to structure our routes in an array of objects like this:
 - ![img_48.png](img_48.png)
 - We have to change our Routes.js to this:
+
 ```js
 export default [
   {
     path: '/',
-    component: Home,
+    component: HomePage,
     exact: true
   },
   {
@@ -860,7 +861,7 @@ export default [
 import {renderRoutes} from "react-router-config";
 import Routes from "../client/Routes"
 import {Provider} from "react-redux";
-// import Home from "../client/components/Home";
+// import HomePage from "../client/components/HomePage";
 
 export default (req,store) =>{
     const content = renderToString(
@@ -929,16 +930,17 @@ function loadData(){
 }
 
 ```
-- Now we will include that load data function in Routes.js like this 
+- Now we will include that load data function in Routes.js like this
+
 ```js
 export default [
   {
     path: '/',
-    component: Home,
+    component: HomePage,
     exact: true
   },
   {
-    loadData:loadData,
+    loadData: loadData,
     path: '/users',
     component: UserList
   }
@@ -1032,3 +1034,151 @@ app.get('*', (req, res) => {
 - It then works like a normal react-redux app. 
 - During the render phase, all of our mapStatetoProps() functions will run and pull data out of the store and map it to props inside the component and component UI is rendered.
 - Only difference now is that in server side rendering, we are doing action creator and dispatch manually
+
+## Organization with Page Components
+- We have more components in our application
+- ![img_58.png](img_58.png)
+- Only root level components may have loadData() defined in them
+- ![img_59.png](img_59.png)
+- Each paged component may have loadData() function associated with them.
+- We will create a folder called pages, rename Home to HomePage and UserList to UserListPage component and move it inside pages directory.
+- Also we will refactor the exports from both the components to be an object with the component itself and the load data function like this 
+
+```js
+export default {
+  component: Home,
+};
+
+export default{
+  component: connect(mapStateToProps,{fetchUsers})(UserListPage),
+  loadData: loadData,
+};
+
+```
+- Now we can use spread operator inside the Routes.js file like this:
+- This way we dont have to export any loadData function as well, we will just import the HomePage or UserList page and apply spread operator over the incoming object
+```js
+export default [
+  {
+    ...HomePage,
+    path: '/',
+    exact: true
+  },
+  {
+    ...UserListPage,
+    path: '/users'
+  }
+];
+```
+
+- Till now, we have solved 2/4 challenges here:
+- ![img_60.png](img_60.png)
+- For different configurations on browser vs server, we created separate stores for both of them
+- To detect when initial data load action creators are completed, we used loadData() function and Promise.all() function.
+- Now we need to think in terms of Client State Rehydration
+
+### Client State Rehydration on the browser
+- Now we are seeing this error again: 
+- ![img_61.png](img_61.png)
+- This is because now the data we are getting from the user contains the list of users.
+- When the browser has to rehydrate, it doesnot expect to see any list of users from the server, so ,therefore, it gives that error.
+- ![img_62.png](img_62.png)
+- At the client side, it thinks that redux store is empty, so it temporarily blanks out the page and then fetches the data again to fill in the redux store.
+- We want to somehow preserve the state that we have prefetched from the server and somehow communicate this state down to the browser or client.
+- **_const store = Redux.createStore(reducer_name,initial_state)_**
+- ![img_63.png](img_63.png)
+- We will use the initial state argument inside createStore function to solve our problem
+- Solution will be something like this 
+- ![img_64.png](img_64.png)
+- It looks like putting data inside a hidden field like we do in ASP.NET MVC application to preserve state across controller calls.
+- Go to renderer.js and populate window.INITIAL_STATE variable with the state of the store like this 
+```js
+export default (req,store) =>{
+  const content = renderToString(
+          <Provider store={store}>
+            <StaticRouter location={req.path} context={{}}>
+              <div>{renderRoutes(Routes)}</div>
+            </StaticRouter>
+          </Provider>
+  );
+  return `
+<html lang="en">
+<head>
+<title>React App</title>
+</head>
+<body>
+    <div id="root">${content}</div>
+    <script>
+    window.INITIAL_STATE = ${JSON.stringify(store.getState())};
+    </script>
+    <script src="bundle.js"></script>
+</body>
+</html>
+`;
+};
+```
+- Now go to client.js and populate the initial state of the store with the data dumped in window.INITIAL_STATE like this 
+```js
+import {Provider} from "react-redux";
+import RenderRoutes from "react-router-config/renderRoutes";
+import Routes from "./Routes";
+import reducers from "./reducers";
+import {renderRoutes} from "react-router-config";
+
+const store = createStore(reducers,window.INITIAL_STATE,applyMiddleware(thunk));
+ReactDOM.hydrate(
+    <Provider store={store}>
+        <BrowserRouter>
+            <div>{renderRoutes(Routes)}</div>
+        </BrowserRouter>
+    </Provider>
+    , document.getElementById("root"));
+```
+- Now the error will disappear, and we will see this and loading of page is also fast.
+- ![img_65.png](img_65.png)
+
+## Preventing XSS attacks
+- The above approach has a security flaw:
+- What if the initial data that we fetch from the server side and store it inside window.initial_state has some kind of script tag executing a script inside of it.
+- ![img_66.png](img_66.png)
+- This is called an XSS attack or cross-site scripting attack.
+- By default, React protects us against XSS attacks but only on the content that React specifically renders.
+- In the above case, we just dumped the data into our browser, and we are vulnerable to XSS attacks.
+- To fix this, we will utilize a function called serialize() from a package called serialize-javascript
+- Serialize function takes a string and will escape any characters in there that are involved in setting up script tags.
+```js
+import React from "react";
+import {renderToString} from "react-dom/server";
+import {StaticRouter} from "react-router-dom";
+import {renderRoutes} from "react-router-config";
+import serialize from 'serialize-javascript';
+import Routes from "../client/Routes"
+import {Provider} from "react-redux";
+// import HomePage from "../client/components/HomePage";
+
+export default (req,store) =>{
+    const content = renderToString(
+        <Provider store={store}>
+            <StaticRouter location={req.path} context={{}}>
+                <div>{renderRoutes(Routes)}</div>
+            </StaticRouter>
+        </Provider>
+    );
+    return `
+<html lang="en">
+<head>
+<title>React App</title>
+</head>
+<body>
+    <div id="root">${content}</div>
+    <script>
+    window.INITIAL_STATE = ${serialize(store.getState())};
+    </script>
+    <script src="bundle.js"></script>
+</body>
+</html>
+`;
+};
+```
+- Our result will look like this 
+- ![img_67.png](img_67.png)

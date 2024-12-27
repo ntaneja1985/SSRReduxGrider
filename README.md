@@ -1522,3 +1522,377 @@ function mapStateToProps ({auth}) {
 export default connect(mapStateToProps)(Header);
 ```
 
+## Error Handling
+
+### Handling unrecognized routes (404 not found page)
+- ![img_86.png](img_86.png)
+- Create a NotFoundPage:
+```js
+import React from 'react';
+
+const NotFoundPage = () => {
+    return <h1>Page Not Found</h1>;
+}
+
+export default {
+    component: NotFoundPage
+};
+
+```
+- Modify the Routes.js file to include the NotFoundPage for any unrecognized path like this
+```js
+import React from 'react';
+import HomePage from './pages/HomePage';
+// import User, {loadData} from './components/UsersList';
+// import UsersList from "./components/UsersList";
+import UserListPage from "./pages/UsersListPage";
+import App from "./App";
+import NotFoundPage from "./pages/NotFoundPage";
+
+export default [
+    {
+        ...App,
+        routes:[
+            {
+                ...HomePage,
+                path: '/',
+                exact: true
+            },
+            {
+                ...UserListPage,
+                path: '/users'
+            },
+            {
+                ...NotFoundPage
+            }
+        ]
+    },
+
+];
+
+
+```
+- If user navigates to a page that doesn't exist, we want to make sure that we want to mark that response with a 404 status code, which will inform the browser that the page was not found.
+- First we need to understand how we can mark a response as 404 in Express:
+- ![img_87.png](img_87.png)
+- ![img_88.png](img_88.png)
+- StaticRouter has a context object. 
+- We will pass the context object, then like in Routes.js if the page is not found, we will display the NotFoundPage.
+- From the server index.js we will create a context object then pass it to the static router, which will pass it to the specific NotFoundPage.
+- Inside the NotFound page, we will set the NotFound Property inside the context object to true.
+- Then back inside server index.js we will inspect that NotFound property and accordingly we will set the response as 404
+```js
+app.use(express.static('public'));
+app.get('*', (req, res) => {
+// We are using JSX inside node.js code
+// Some logic to initialize and load data into the store.
+  const store = createStore(req);
+  //return an array of components which will be rendered.
+
+  //Returns an array of promises
+  const promises = matchRoutes(Routes,req.path).map(({route})=>{
+    return route.loadData ? route.loadData(store) : null;
+  });
+
+  Promise.all(promises).then(() => {
+    const context = {};
+    const content = renderer(req,store,context);
+    if(context.notFound)
+    {
+      res.status(404);
+    }
+    res.send(content);
+  })
+})
+```
+- Changes inside renderer.js 
+```js
+export default (req,store,context) =>{
+  const content = renderToString(
+          <Provider store={store}>
+            <StaticRouter location={req.path} context={context}>
+              <div>{renderRoutes(Routes)}</div>
+            </StaticRouter>
+          </Provider>
+  );
+```
+- Changes inside NotFoundPage component 
+```js
+import React from 'react';
+
+const NotFoundPage = ({staticContext = {}}) => {
+    staticContext.notFound = true;
+    return <h1>Page Not Found</h1>;
+}
+
+export default {
+    component: NotFoundPage
+};
+```
+- Please note in browser router in case of client side rendering the staticContext object will be null so as to not generate any errors we will set its default to empty object.
+
+## Creating the Admin Page
+- ![img_89.png](img_89.png)
+```js
+//Adding the action creator
+export const FETCH_ADMINS = 'fetch_admins';
+export const fetchAdmins = () => async (dispatch,getState,api) => {
+  const res = await api.get('/admins');
+  dispatch({
+    type: FETCH_ADMINS,
+    payload: res
+  });
+
+};
+
+//Adding the Reducer
+import {FETCH_ADMINS} from "../actions";
+
+export default (state = [], action) => {
+  switch(action.type) {
+    case FETCH_ADMINS:
+      return action.payload.data;
+    default:
+      return state;
+  }
+}
+
+//Adding the UI AdminsListPage
+import React, {Component} from 'react';
+import {connect} from 'react-redux';
+import {fetchAdmins} from "../actions";
+
+class AdminsListPage extends Component {
+  componentDidMount() {
+    this.props.fetchAdmins();
+  }
+
+  renderAdmins(){
+    return this.props.admins.map(admin => {
+      return <li key={admin.id}>{admin.name}</li>
+    })
+  }
+  render() {
+    return (
+            <div>
+              <h3>Here is a protected list of admins:</h3>
+              <ul>{this.renderAdmins()}</ul>
+            </div>
+    )
+  }
+}
+
+function mapStateToProps(state) {
+  return {
+    admins: state.admins,
+  };
+}
+
+//Returns a promise
+function loadData(store){
+  // console.log('Trying to load some data');
+  return store.dispatch(fetchAdmins());
+
+}
+
+export default{
+  component: connect(mapStateToProps,{fetchAdmins})(AdminsListPage),
+  loadData: loadData,
+};
+
+
+```
+- If the user is authenticated, list of admins is displayed.
+- If the user is not authenticated then we get a 401 unauthorized error at the server during server side rendering
+- Also, we see unresolved promises
+- **However, why is the server is hanging?**
+- At the initial page load, we collect all the loadData() functions inside our routes.
+- Then we call all those loadData() functions and wait for the promises to be resolved here:
+```js
+//Returns an array of promises
+const promises = matchRoutes(Routes,req.path).map(({route})=>{
+  return route.loadData ? route.loadData(store) : null;
+});
+
+Promise.all(promises).then(() => {
+  const context = {};
+  const content = renderer(req,store,context);
+  if(context.notFound)
+  {
+    res.status(404);
+  }
+  res.send(content);
+})
+})
+```
+- However, even if one promise doesn't resolve, it causes everything to fail.
+- We are not using a catch statement chained to the promises.
+- Unhandled promise rejection means we are not catching errors in the promises.
+- We have 2 ways of fixing this a bad way and a good way:
+- **Bad way: Chain a catch statement**: This is a poor approach, the user can fix this. We gave up, and we didn't give an option to user to try again like 'Please login to access this page'
+```js
+Promise.all(promises).then(() => {
+  const context = {};
+  const content = renderer(req,store,context);
+  if(context.notFound)
+  {
+    res.status(404);
+  }
+  res.send(content);
+}).catch(()=>{
+  res.send('Something went wrong');
+})
+})
+```
+- **Another way: still not the best approach**
+- We put the display logic in a separate function.
+- Then in the promises catch function, we still try to render like this
+```js
+const render = () => {
+  const context = {};
+  const content = renderer(req,store,context);
+  if(context.notFound)
+  {
+    res.status(404);
+  }
+  res.send(content);
+}
+
+Promise.all(promises).then(render).catch(render);
+```
+- We still see our header but the list of admin users is missing
+- ![img_90.png](img_90.png)
+- ![img_91.png](img_91.png)
+- In Promise.all(), whenever it encounters the first promise that has failed, it immediately calls the catch function without even calling other promises in the list
+- So in this approach, we are rendering the app, even if other promises have not yet resolved.
+- Even though we are showing some content here, it is not the best approach. We are attempting to render the application too soon, even if other promises have not yet resolved.
+
+
+- **Best approach: Wait for all promises to be resolved or rejected before rendering the application**
+- We are going to take all the promises from loadData() function and wrap them inside a new promise
+- We will try to circumvent the short circuit behavior of promise.all()
+- We know that the matchRoutes function gives us an array of promises
+- We are going to map over the array of promises and then put each promise inside a new promise which will always resolve even if the inner promise is resolved or rejected
+```js
+const promises = matchRoutes(Routes,req.path).map(({route})=>{
+  return route.loadData ? route.loadData(store) : null;
+}).map(promise => {
+  if(promise){
+    return new Promise((resolve,reject)=>{
+      promise.then(resolve).catch(resolve);
+    })
+  }
+})
+```
+- This way when Promise.all() function runs, we have made sure all of our promises are either resolved or rejected.
+- This will ensure all the loadData() functions of all our components have run.
+- Now we need to figure out a way to communicate an error message to the user:
+- If the user is not authenticated, we should redirect the user to a different route.
+- ![img_92.png](img_92.png)
+- We should introduce a new RequireAuth component.
+- It will check the auth state and redirect the user to a different page.
+- ![img_93.png](img_93.png)
+
+## RequireAuth Component
+- Require Auth component will be a higher order component
+- A Higher-Order Component (HOC) is an advanced technique in React for reusing component logic. 
+- HOCs are functions that take a component and return a new component with enhanced behavior or additional props. 
+- They are a pattern derived from React’s compositional nature.
+- Reusability: HOCs allow you to reuse logic across multiple components without repeating code.
+- Abstraction: They help abstract complex logic and keep your components focused on their primary responsibility.
+```js
+import React from 'react';
+
+// A simple HOC that adds additional props to a component
+const withExtraProps = (WrappedComponent) => {
+  return class extends React.Component {
+    render() {
+      return <WrappedComponent extraProp="This is an extra prop" {...this.props} />;
+    }
+  };
+};
+
+export default withExtraProps;
+
+//Usage
+import React from 'react';
+import withExtraProps from './withExtraProps';
+
+const MyComponent = (props) => {
+  return (
+          <div>
+            <p>{props.extraProp}</p>
+            <p>{props.someProp}</p>
+          </div>
+  );
+};
+
+const EnhancedComponent = withExtraProps(MyComponent);
+
+export default EnhancedComponent;
+
+
+```
+- Don’t Mutate the Original Component: Always create a new component.
+- Wrap the Display Name: Enhance the display name for easier debugging.
+- Avoid Overuse: Use HOCs judiciously to avoid overly complex hierarchies.
+- ![img_94.png](img_94.png)
+- HOCs are common around authentication and authorization.
+- We will create a new requireAuthComponent which will take in a child component, and we will check if the user is authenticated or not and then either redirect the user or display the component like this
+- Note that we have to attach the auth State from redux store to check if the user is authenticated.
+- Also note, that any props passed to HOC requireAuth are also passed to the child component
+```js
+import React,{Component} from "react";
+import {connect} from 'react-redux';
+import {Redirect} from "react-router-dom";
+
+export default (ChildComponent) => {
+    class RequireAuth extends Component {
+        render() {
+           switch (this.props.auth) {
+               case false:
+                   return <Redirect to="/" />;
+               case null:
+                   return <div>Loading...</div>
+               default:
+                   return <ChildComponent {...this.props}/>
+           }
+        }
+    }
+
+    function mapStateToProps({auth}) {
+        return {auth: auth};
+    }
+    return connect(mapStateToProps)(RequireAuth);
+}
+```
+- We will call this HOC requireAuth inside the AdminsListPage like this 
+```js
+export default{
+  component: connect(mapStateToProps,{fetchAdmins})(requireAuth(AdminsListPage)),
+  loadData: loadData,
+};
+```
+- Now if the user is not authenticated or auth State = false, the user is not getting redirected to the homepage.
+- To fix this ,we need to inspect and log the context object
+- ![img_95.png](img_95.png)
+- We need to understand that we are using a static router.
+- When we do a redirect, nothing changes on the browser, only the context object has changed.
+- So we need to handle redirects as per the context object like this 
+```js
+Promise.all(promises).then(() => {
+  const context = {};
+  const content = renderer(req,store,context);
+
+  console.log(context);
+  if(context.url){
+    return res.redirect(301,context.url);
+  }
+  if(context.notFound)
+  {
+    res.status(404);
+  }
+  res.send(content);
+})
+```
+- Now redirects will work fine. If the user is not logged in, he is redirected to the homepage.

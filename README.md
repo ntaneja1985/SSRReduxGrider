@@ -1182,3 +1182,343 @@ export default (req,store) =>{
 ```
 - Our result will look like this 
 - ![img_67.png](img_67.png)
+
+
+## Authentication during server side rendering process
+- We have now wrapped up 3/4 challenges
+- ![img_68.png](img_68.png)
+- For different configurations on browser vs server, we created separate stores for both of them
+- To detect when initial data load action creators are completed, we used loadData() function and Promise.all() function.
+- For client state rehydration, we are passing the state in the redux store generated in server side rendering to an HTML template.
+- Then we are fetching the initial state of the store from this HTML template and initializing the client side redux store.
+- Now we need to think in terms on authentication on the server side.
+- Authentication in webapp can be considered like a contract between a browser and a server. 
+- Every request browser makes to the server, it includes an identifying piece of information either inside a cookie or JWT
+-![img_69.png](img_69.png)
+- ![img_70.png](img_70.png)
+- Rendering server needs to fool the API that it is the browser that is making the request
+- ![img_71.png](img_71.png)
+- OAuth Process with google attaches an identifier to the user's cookie.
+- ![img_72.png](img_72.png)
+- If there is a cookie set between the browser and say api.ourapp.com, it is not going to send cookie to the rendering server hosted at ourapp.com 
+- So renderer server will not be able to fetch data from the API server on behalf of the browser.
+- Is there a solution? Yes :)
+
+### Authentication via Proxy
+- ![img_73.png](img_73.png)
+- ![img_74.png](img_74.png)
+
+### Why JWT doesnt work? or why are we using cookies?
+- JWTs and cookies are not exclusive. We can put a JWT inside a cookie also.
+- ![img_75.png](img_75.png)
+- ![img_76.png](img_76.png)
+- With JWT, we cannot send HTML rendered content, instead we need to request for a JWT
+- Only thing we can send to a domain are the cookies attached to that domain.
+- HTTP-only cookies are recommended because they are not accessible via JavaScript, reducing the risk of XSS (Cross-Site Scripting) attacks.
+
+### Checked on ChatGPT that it is possible to use JWTs with server side rendering but there are some challenges
+- Token Secure Storage: On the client side, JWTs are typically stored in local storage or cookies. For SSR, you must ensure tokens are securely stored and accessible during the server-side render process. 
+- HTTP-only cookies are recommended because they are not accessible via JavaScript, reducing the risk of XSS (Cross-Site Scripting) attacks.
+- Server-Side Verification: When rendering on the server, you need to verify the JWT to ensure the request is authenticated. This involves decoding the token and validating its signature, which requires the server to have access to the secret key or public key (for asymmetric encryption).
+- Server-Side Data Fetching: For SSR, the server needs to fetch data based on the authenticated user's information before rendering the HTML. This can introduce additional complexity and latency compared to client-side rendering.
+- Hydration Consistency: The server-rendered HTML must match the client-side application once it rehydrates. This includes ensuring that user-specific data fetched and rendered on the server is properly reflected on the client.
+- Security Considerations CSRF (Cross-Site Request Forgery): When using cookies to store JWTs, you must implement CSRF protection. This typically involves using a separate CSRF token.
+```js
+const express = require('express');
+const jwt = require('jsonwebtoken');
+const React = require('react');
+const ReactDOMServer = require('react-dom/server');
+const App = require('./src/App').default;
+
+const app = express();
+
+app.get('*', (req, res) => {
+  const token = req.cookies.jwt; // Read the JWT from cookies
+  let userData;
+
+  if (token) {
+    try {
+      userData = jwt.verify(token, 'your-secret-key'); // Verify the JWT
+    } catch (err) {
+      return res.status(401).send('Unauthorized');
+    }
+  }
+
+  const appHtml = ReactDOMServer.renderToString(<App userData={userData} />);
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>SSR with JWT</title>
+      </head>
+      <body>
+        <div id="root">${appHtml}</div>
+        <script src="/client.bundle.js"></script>
+      </body>
+    </html>
+  `;
+
+  res.send(html);
+});
+
+app.listen(3000, () => {
+  console.log('Server is listening on port 3000');
+});
+
+```
+
+### Proxy Setup
+- For proxy setup we are going to use express-http-proxy package
+- An Express HTTP proxy is a middleware for the Express.js framework that allows you to forward HTTP requests from your server to another server and then pass the response back to the original client
+- We can set it up as follows in code in our server index.js like this 
+```js
+import proxy from 'express-http-proxy'
+import {matchRoutes} from "react-router-config";
+
+const app = express();
+
+//middleware
+app.use('/api', proxy('http://react-ssr-api.herokuapp.com', {
+    proxyReqOptDecorator(opts){
+        opts.header['x-forwarded-host'] = "localhost:3000";
+        return opts;
+    }
+}));
+```
+
+### Next step is that during page load process, the server should communicate directly with API
+- ![img_77.png](img_77.png)
+- The browser has a cookie, when we run the fetchUsers action creator which simply executes an axios get request to the API, we need to make sure to attach the cookie that came from the browser to that axios get request.
+- ![img_78.png](img_78.png)
+- We want axios to behave slightly differently depending on whether it is running on the client or the server.
+- ![img_79.png](img_79.png)
+- We don't want to put this customization into every single action creator. Need to do something generic.
+- We will use axios and redux thunk to solve this.
+- ![img_80.png](img_80.png)
+- We can create a custom instance of axios and set some options.
+- We can look at source code of redux thunk:
+- ![img_81.png](img_81.png)
+- We can use the extraArgument property of redux thunk.
+- Using this we can attach an extra 3rd argument to our action creators.
+- ![img_82.png](img_82.png)
+- Similar to how we have different copies of redux store, we also need 2 separate instances of axios for both server and client.
+- We will pass that custom axios instance into redux thunk as an extra 3rd argument.
+- Then in action creators we will receive customized axios instance.
+
+### Custom Axios Instance on the Client
+- ![img_83.png](img_83.png)
+- Custom axios instance will prepend "/api" to any axios request like say axiosInstance.get('/users') will become /api/users 
+- Now inside our client.js we will create a custom axiosInstance and pass it as an extra third argument to the thunk like this 
+```js
+const axiosInstance = axios.create({
+  baseURL: '/api',
+});
+const store = createStore(reducers,window.INITIAL_STATE,applyMiddleware(thunk.withExtraArgument(axiosInstance)));
+```
+- Now inside our action creators, we will utilize this custom axios instance as follows:
+- We will call this custom Axios instance as api. 
+```js
+export const FETCH_USERS = 'fetch_users';
+export const fetchUsers = () => async (dispatch,getState,api) => {
+    const res = await api.get('/users');
+    dispatch({
+        type: FETCH_USERS,
+        payload: res
+    });
+
+};
+```
+### Server Axios Instance 
+- This is little more complex, since we want the cookie coming from the incoming request, be stripped from that request and attached to the api.
+- We will first go to the helpers-> create store file and modify as follows:
+- Here we will pass in the request object from the incoming request and use it to extract the cookie and attach it to the custom axios Instance.
+- Then we will use that extra argument feature of redux thunk and pass it along to the action creator.
+```js
+import {createStore,applyMiddleware} from 'redux';
+import thunk from 'redux-thunk';
+import axios from 'axios';
+import reducers from '../client/reducers';
+
+export default (req) =>{
+
+    const axiosInstance = axios.create({
+        baseURL: 'http://react-ssr-api.herokuapp.com',
+        headers: {cookie: req.get('cookie') || ''}
+    })
+    const store = createStore(reducers, {}, applyMiddleware(thunk.withExtraArgument(axiosInstance)));
+    return store;
+}
+```
+- Changes to be made in server index.js file
+```js
+import 'babel-polyfill';
+import express from 'express';
+import renderer from "./helpers/renderer";
+import createStore from "./helpers/createStore";
+import Routes from "./client/Routes";
+import proxy from 'express-http-proxy'
+import {matchRoutes} from "react-router-config";
+
+const app = express();
+
+//middleware
+app.use('/api', proxy('http://react-ssr-api.herokuapp.com', {
+    proxyReqOptDecorator(opts){
+        opts.headers['x-forwarded-host'] = "localhost:3000";
+        return opts;
+    }
+}));
+
+//Make the root directory public
+app.use(express.static('public'));
+app.get('*', (req, res) => {
+// We are using JSX inside node.js code
+// Some logic to initialize and load data into the store.
+    const store = createStore(req);
+    //return an array of components which will be rendered.
+
+    //Returns an array of promises
+    const promises = matchRoutes(Routes,req.path).map(({route})=>{
+        return route.loadData ? route.loadData(store) : null;
+    });
+
+    Promise.all(promises).then(() => {
+        res.send(renderer(req,store));
+    })
+})
+```
+- Now if we go and test, everything works as expected.
+
+## Header Component
+- We will make a change in our app and introduce an App Component or root component
+- ![img_84.png](img_84.png)
+- This root component will in turn render all the other component inside of it.
+- To implement this, first we need to create an empty App Component and then modify our Routes.js file as follows:
+```js
+export default [
+  {
+    ...App,
+    routes:[
+      {
+        ...HomePage,
+        path: '/',
+        exact: true
+      },
+      {
+        ...UserListPage,
+        path: '/users'
+      }
+    ]
+  },
+
+];
+```
+- As you can see from above, App component nests all the other components as a child within it.
+- Now we will introduce some more react-router-config code inside our app component like this 
+```js
+import React from 'react';
+import {renderRoutes} from "react-router-config";
+
+const App = ({route}) => {
+  return (
+          <div>
+            <h1>I am a header</h1>
+            {renderRoutes(route.routes)}
+          </div>
+  )
+}
+
+export default {
+  component: App
+};
+```
+- Now if we go to Homepage or UserList page, a header is always displayed
+
+## Checking if the user is signed In
+- ![img_85.png](img_85.png)
+- To check if the user is signedIn, we need to fetch the current authentication status of the user
+- This can be done inside an action creator like this 
+- Note that this call is from the server side using the proxy.
+```js
+export const FETCH_CURRENT_USER = 'fetch_current_user';
+export const fetchCurrentUser = () => async (dispatch,getState,api) => {
+    const res = await api.get('/current_user');
+    console.log(res.data);
+    dispatch({
+        type: FETCH_CURRENT_USER,
+        payload: res
+    });
+
+};
+```
+- Now we need to create an authReducer to update the state based on the above action creator 
+```js
+import {FETCH_CURRENT_USER} from "../actions";
+
+export default (state = null, action) => {
+    switch(action.type) {
+        case FETCH_CURRENT_USER:
+            console.log(action.payload.data);
+            return action.payload.data || false;
+        default:
+            return state;
+    }
+}
+```
+- Now inside the App Component we need to call this action creator
+```js
+import React from 'react';
+import {renderRoutes} from "react-router-config";
+import Header from "./components/Header";
+import {fetchCurrentUser} from "./actions";
+
+const App = ({route}) => {
+  return (
+          <div>
+            <Header />
+            {renderRoutes(route.routes)}
+          </div>
+  )
+}
+
+export default {
+  component: App,
+  loadData: ({dispatch})=> {
+    console.log(dispatch)
+
+    return dispatch(fetchCurrentUser())
+  }
+};
+```
+- Now based on auth state whether it contains data or whether it is false, we can display Login and Logout buttons in the Header component like this 
+```js
+import React from 'react';
+import {Link} from 'react-router-dom';
+import {connect} from 'react-redux';
+const Header =  ({auth})=>{
+    console.log("Auth status is",auth);
+    const authButton = auth ? (
+        <a href="/api/logout">Logout</a>
+    ): (
+        <a href="/api/auth/google">Login</a>
+    )
+    return (
+        <nav>
+        <div className="nav-wrapper">
+        <Link to="/" className="brand-logo">React SSR</Link>
+            <ul className="right">
+               <li> <Link to="/users">Users</Link></li>
+                <li><Link to="/admins">Admins</Link></li>
+                <li>{authButton}</li>
+            </ul>
+        </div>
+        </nav>
+    )
+}
+function mapStateToProps ({auth}) {
+    return {auth: auth};
+}
+
+export default connect(mapStateToProps)(Header);
+```
+

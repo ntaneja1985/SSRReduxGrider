@@ -1896,3 +1896,256 @@ Promise.all(promises).then(() => {
 })
 ```
 - Now redirects will work fine. If the user is not logged in, he is redirected to the homepage.
+
+## Implementing Better SEO support
+- ![img_96.png](img_96.png)
+- Here we can see that when we post a link on Twitter or facebook or linkedin, it automatically pulls up an image, title and description of the page.
+- This is because this page was pre-rendered using server side rendering.
+- ![img_97.png](img_97.png)
+- ![img_98.png](img_98.png)
+- We can setup meta tags inside our pages to provide more information about the page.
+- We can use Open Graph Protocol.
+- We can use open graph meta tags.
+- Using it can dramatically improve SEO of our application.
+- ![img_99.png](img_99.png)
+- Search engines use bots that scrape our pages.
+- We need to insert correct meta tags.
+- To set these tags we will use a library called react-helmet.
+- ![img_100.png](img_100.png)
+- ![img_101.png](img_101.png)
+- ![img_102.png](img_102.png)
+- ![img_103.png](img_103.png)
+- The Open Graph protocol enables any web page to become a rich object in a social graph. 
+- For instance, this is used on Facebook to allow any web page to have the same functionality as any other object on Facebook.
+- To turn your web pages into graph objects, you need to add basic metadata to your page. We've based the initial version of the protocol on RDFa which means that you'll place additional <meta> tags in the <head> of your web page. 
+- The four required properties for every page are:
+- og:title - The title of your object as it should appear within the graph, e.g., "The Rock".
+- og:type - The type of your object, e.g., "video.movie". Depending on the type you specify, other properties may also be required.
+- og:image - An image URL which should represent your object within the graph.
+- og:url - The canonical URL of your object that will be used as its permanent ID in the graph, e.g., "https://www.imdb.com/title/tt0117500/".
+- For example, we can use it like this:
+```html
+<html prefix="og: https://ogp.me/ns#">
+<head>
+  <title>The Rock (1996)</title>
+  <meta property="og:title" content="The Rock" />
+  <meta property="og:type" content="video.movie" />
+  <meta property="og:url" content="https://www.imdb.com/title/tt0117500/" />
+  <meta property="og:image" content="https://ia.media-imdb.com/images/rock.jpg" />
+  ...
+</head>
+...
+</html>
+```
+- Inside the UsersListPage, we will make use of React Helmet Library to set our meta tags like this 
+```js
+ render() {
+  return (
+          <div>
+            <Helmet>
+              <title>Users App</title>
+              <meta property="og:title" content="Users App"/>
+            </Helmet>
+            Here is a big list of users:
+            <ul>{this.renderUsers()}</ul>
+          </div>
+  )
+}
+```
+- Now inside our renderer.js we will pull out these meta tags and put them inside our HTML template manually like this
+```js
+const helmet = Helmet.renderStatic();
+    return `
+<html lang="en">
+<head>
+${helmet.title.toString()}
+${helmet.meta.toString()}
+ <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+</head>
+```
+- This will then generate the meta tags and send it along to the browser along with all the server generated HTML
+- ![img_105.png](img_105.png)
+
+## Dynamic Title Tags based on Redux State
+- We can do this like this 
+- Notice the head() function which has title that is loaded dynamically based on redux state.
+```js
+class UserListPage extends Component {
+  componentDidMount() {
+    this.props.fetchUsers();
+  }
+
+  renderUsers(){
+    return this.props.users.map(user => {
+      return <li key={user.id}>{user.name}</li>
+    })
+  }
+
+  head() {
+    const headerTitle = `${this.props.users.length} users loaded`;
+    return (
+            <Helmet>
+              <title>{headerTitle}</title>
+              <meta property="og:title" content="Users App"/>
+            </Helmet>
+    )
+  }
+  render() {
+    return (
+            <div>
+              {this.head()}
+              Here is a big list of users:
+              <ul>{this.renderUsers()}</ul>
+            </div>
+    )
+  }
+}
+
+function mapStateToProps(state) {
+  return {
+    users: state.users,
+  };
+}
+
+//Returns a promise
+function loadData(store){
+  // console.log('Trying to load some data');
+  return store.dispatch(fetchUsers());
+
+}
+
+
+export default{
+  component: connect(mapStateToProps,{fetchUsers})(UserListPage),
+  loadData: loadData,
+};
+```
+
+## RenderToString() vs RenderToNodeStream()
+- All the SSR that we have seen really hinged on the React DOM library.
+- We have a renderer.js file which has a renderToString() function which loads our HTML template.
+- renderToNodeStream is deprecated, we use renderToPipeableStream() function now.
+- Call renderToPipeableStream to render your React tree as HTML into a Node.js Stream
+- Use it like this 
+```js
+import { renderToPipeableStream } from 'react-dom/server';
+
+// The route handler syntax depends on your backend framework
+app.use('/', (request, response) => {
+  const { pipe } = renderToPipeableStream(<App />, {
+    bootstrapScripts: ['/main.js'],
+    onShellReady() {
+      response.setHeader('content-type', 'text/html');
+      pipe(response);
+    }
+  });
+});
+```
+- Along with the root component, you need to provide a list of bootstrap <script> paths. Your root component should return the entire document including the root <html> tag.
+- For example, it might look like this:
+```js
+export default function App() {
+  return (
+    <html>
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="stylesheet" href="/styles.css"></link>
+        <title>My app</title>
+      </head>
+      <body>
+        <Router />
+      </body>
+    </html>
+  );
+}
+```
+- React will inject the doctype and your bootstrap <script> tags into the resulting HTML stream:
+```html
+<!DOCTYPE html>
+<html>
+  <!-- ... HTML from your components ... -->
+</html>
+<script src="/main.js" async=""></script>
+```
+- On the client, your bootstrap script should hydrate the entire document with a call to hydrateRoot:
+```js
+import { hydrateRoot } from 'react-dom/client';
+import App from './App.js';
+
+hydrateRoot(document, <App />);
+```
+- This will attach event listeners to the server-generated HTML and make it interactive.
+- renderToNodeStream() is similar to renderToString() function that we used. 
+- renderToString() returns a string which contains HTML whereas renderToNodeStream returns a readable stream that outputs an HTML string.
+- The HTML output by this stram is exactly equal to what REACTDOMServer.renderToString() would return.
+- The stream returned from this method will return a byte stream encoded in UTF-8. 
+
+### What is a readable stream?
+- How renderToString() works ?
+- ![img_106.png](img_106.png)
+- How renderToNodeStream works?
+- ![img_107.png](img_107.png)
+- renderToNodeStream is a method in the react-dom/server package that allows you to perform server-side rendering (SSR) of React components and stream the resulting HTML directly to the client. 
+- This is particularly useful for improving the performance of SSR by allowing the server to start sending chunks of HTML to the client as soon as they are available, rather than waiting for the entire component tree to render.
+- Faster Initial Load Time (Time to First Byte (TTFB)): Streaming HTML allows for faster initial load times, as the client can begin processing and rendering HTML before the entire component tree is fully rendered.
+- Resource Efficiency: Reduces memory usage on the server because it streams HTML in chunks rather than generating the entire HTML content in memory first.
+- Improved User Experience: Enhances perceived performance by providing immediate feedback to users, especially for complex pages.
+- renderToNodeStream returns a readable stream of HTML that can be piped directly to the HTTP response.
+```js
+// src/App.js
+import React from 'react';
+
+const App = () => (
+  <div>
+    <h1>Hello, world!</h1>
+  </div>
+);
+
+export default App;
+
+// server.js
+const express = require('express');
+const React = require('react');
+const ReactDOMServer = require('react-dom/server');
+const App = require('./src/App').default;
+
+const app = express();
+
+app.get('*', (req, res) => {
+  res.write('<!DOCTYPE html><html><head><title>SSR with Streaming</title></head><body><div id="root">');
+
+  const stream = ReactDOMServer.renderToNodeStream(<App />);
+
+  stream.pipe(res, { end: false });
+
+  stream.on('end', () => {
+    res.write('</div><script src="/bundle.js"></script></body></html>');
+    res.end();
+  });
+});
+
+app.listen(3000, () => {
+  console.log('Server is listening on port 3000');
+});
+
+
+
+
+```
+- Initial HTML: The server starts by sending the initial parts of the HTML document.
+- Streaming React Component: renderToNodeStream generates a stream of HTML for the React component, which is piped to the response.
+- Final HTML: Once the streaming is complete, the server sends the closing tags and any necessary scripts.
+
+### Big issue with renderToNodeStream
+- When we start sending a stream of response using renderToNodeStream, at some point if we realize that the user is trying to access a protected route or some data is invalid, we cannot change the status code of the response.
+- At that point of time, we are fully committed to sending the stream of data to the user albeit in chunks, but we are committed.
+- This represents a big issue in using renderToNodeStream function.
+- There are ways to deal with this but they all involve appending some HTML or running some Javascript code on the user's browser. Either of these approaches dont work well if the user doesnot use javascript.
+
+
+### Using renderToNodeStream can significantly improve the performance of server-side rendering by streaming HTML content to the client in chunks, allowing for faster initial page loads and a better user experience.
+- **_renderToPipeableStream_** is a more advanced method that provides a better API for working with both Node.jsstreams and the Web Streams API. It offers improved streaming capabilities, including support for Suspense on the server and finer control over streaming behavior.
+
+- Going back to an application and adding server side rendering later on is really tough. Do it from the initial step.
+- 
